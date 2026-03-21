@@ -25,7 +25,7 @@ A high-performance, multi-threaded Crunchyroll account checker with proxy suppor
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/Ver3xl/Crunchyroll-Checker.git
+   git clone https://github.com/RivanSoul/Crunchyroll-Checker.git
    cd crunchyroll-checker
    ```
 
