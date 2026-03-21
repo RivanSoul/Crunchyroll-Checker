@@ -78,5 +78,6 @@ Valid logins are also saved to `hits.txt` (only `email:pass`).
 
 This tool is for **educational purposes only**. The developer is not responsible for any misuse. Do not use this tool on accounts you do not own.
 
+---
 
-
+Made with ❤️ by MeowMal Dev's
