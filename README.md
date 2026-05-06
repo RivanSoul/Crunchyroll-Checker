@@ -4,7 +4,7 @@
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 [![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/meowleak)
-[![Discord](https://img.shields.io/badge/Discord-MeowMal-5865F2?style=flat-square&logo=discord)](https://discord.gg/7RRv93nXCp)
+[![Discord](https://img.shields.io/badge/Discord-MeowMal-5865F2?style=flat-square&logo=discord)](https://discord.gg/D3FG34BFjS)
 
 
 A high-performance, multi-threaded Crunchyroll account checker with proxy support (HTTP/Socks4/Socks5), detailed capture (Plan, Renewal, Payment, Country), and both Windows & Linux support.
