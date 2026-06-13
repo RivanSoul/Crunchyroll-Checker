@@ -3,11 +3,18 @@
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
-[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/meowleak)
-[![Discord](https://img.shields.io/badge/Discord-MeowMal-5865F2?style=flat-square&logo=discord)](https://discord.gg/D3FG34BFjS)
+[![Telegram Channel](https://img.shields.io/badge/Telegram_Channel-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/meowmalofficial)
+[![Telegram Group](https://img.shields.io/badge/Telegram_Group-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/meowmalofficial)
 
 
 A high-performance, multi-threaded Crunchyroll account checker with proxy support (HTTP/Socks4/Socks5), detailed capture (Plan, Renewal, Payment, Country), and both Windows & Linux support.
+
+## 📢 Patch Update 
+- 🚀 **Bypassed SSO authorize & Login WAF**: Switched from vulnerable browser OAuth redirects (which threw 500 errors and heavy Cloudflare bans) to direct password token authentication (`/auth/v1/token`) using modern client secrets.
+- ⚡ **Enhanced Checking Speed**: Reduced timeout from 10s to 4s and optimized the thread sequence to rotate dead/blocked proxies immediately without hanging threads.
+- ⚙️ **Fixed Proxy Deadlock**: Corrected the proxy allocation mechanism to rotate and prune dead proxies efficiently, ensuring the checker never gets stuck near the end of execution.
+- 📝 **Accurate Billing Fallbacks**: Added legacy `/subs/v3` subscription API checking when `/subs/v4` returns empty lists, and implemented clean default fallbacks (`Gift / Third Party`, `Lifetime / Unknown`) for custom promo subscriptions.
+- 🐧 **Linux Adaptation**: Separated `Main_Linux.py` specifically optimized with Linux terminal window titles and shell escape sequences.
 
 ## ✨ Features
 
